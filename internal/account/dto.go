@@ -62,6 +62,14 @@ type CreateAccountRequest struct {
 	// silently normalized to 0 for every other type in Validate — never
 	// trust the client to have hidden the field on its own.
 	CreditLimit float64 `json:"credit_limit"`
+	// BranchName/AccountNumber/HolderName are optional reference details,
+	// relevant for every type except cash (there's nothing to reference
+	// for physical cash). Validate silently clears them for TypeCash so
+	// a client that sends them anyway doesn't end up with inconsistent
+	// data.
+	BranchName    string `json:"branch_name"`
+	AccountNumber string `json:"account_number"`
+	HolderName    string `json:"holder_name"`
 }
 
 // Validate normalizes and applies basic business rules to the incoming
@@ -88,6 +96,10 @@ func (r *CreateAccountRequest) Validate() error {
 		return errors.New("initial_balance must be a finite number")
 	}
 
+	if err := normalizeDetailFields(r.Type, &r.BranchName, &r.AccountNumber, &r.HolderName); err != nil {
+		return err
+	}
+
 	if r.Type != TypeCreditCard {
 		r.CreditLimit = 0
 		if r.InitialBalance < 0 {
@@ -106,6 +118,46 @@ func (r *CreateAccountRequest) Validate() error {
 	return nil
 }
 
+// normalizeDetailFields trims the optional branch/account-number/holder
+// reference fields, length-checks each, and — since there's nothing to
+// reference for physical cash — clears all three when accountType is
+// TypeCash regardless of what the client sent. Shared by
+// CreateAccountRequest and UpdateAccountRequest so the two never drift.
+func normalizeDetailFields(accountType string, branchName, accountNumber, holderName *string) error {
+	if accountType == TypeCash {
+		*branchName, *accountNumber, *holderName = "", "", ""
+		return nil
+	}
+
+	*branchName = strings.TrimSpace(*branchName)
+	if len(*branchName) > 100 {
+		return errors.New("branch_name must be at most 100 characters")
+	}
+
+	*accountNumber = strings.TrimSpace(*accountNumber)
+	if len(*accountNumber) > 50 {
+		return errors.New("account_number must be at most 50 characters")
+	}
+
+	*holderName = strings.TrimSpace(*holderName)
+	if len(*holderName) > 150 {
+		return errors.New("holder_name must be at most 150 characters")
+	}
+
+	return nil
+}
+
+// asOptional turns an empty string into a nil pointer (so it's stored as
+// SQL NULL rather than an empty string) and a non-empty one into a
+// pointer to it — the shape Account's BranchName/AccountNumber/HolderName
+// columns expect.
+func asOptional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // BalanceCents converts the human-entered InitialBalance into an integer
 // number of cents, rounding to the nearest cent to avoid floating point
 // drift (e.g. 19.99 * 100 landing on 1998.9999999999998).
@@ -120,12 +172,16 @@ func (r *CreateAccountRequest) CreditLimitCents() int64 {
 }
 
 // UpdateAccountRequest is the expected JSON payload for PUT
-// /accounts/{id}. Only Name and Type are editable this way — Balance
-// only ever changes through transactions (see internal/transaction), so
-// there is deliberately no way to overwrite it directly here.
+// /accounts/{id}. Name, Type, and the optional reference details are
+// editable this way — Balance only ever changes through transactions
+// (see internal/transaction), so there is deliberately no way to
+// overwrite it directly here.
 type UpdateAccountRequest struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	BranchName    string `json:"branch_name"`
+	AccountNumber string `json:"account_number"`
+	HolderName    string `json:"holder_name"`
 }
 
 // Validate normalizes and applies the same rules as CreateAccountRequest.
@@ -142,31 +198,42 @@ func (r *UpdateAccountRequest) Validate() error {
 	}
 	r.Type = t
 
+	if err := normalizeDetailFields(r.Type, &r.BranchName, &r.AccountNumber, &r.HolderName); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // AccountResponse is the JSON shape returned to clients for a single
 // wallet. Balance stays in cents on the wire — the frontend divides by
 // 100 and formats it for display, keeping the money representation
-// exact end to end.
+// exact end to end. The three detail fields are omitted (null) for cash
+// wallets and for any wallet created before this column existed.
 type AccountResponse struct {
-	ID          uint      `json:"id"`
-	Name        string    `json:"name"`
-	Type        string    `json:"type"`
-	Balance     int64     `json:"balance"`
-	CreditLimit int64     `json:"credit_limit"`
-	IsActive    bool      `json:"is_active"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID            uint      `json:"id"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+	Balance       int64     `json:"balance"`
+	CreditLimit   int64     `json:"credit_limit"`
+	IsActive      bool      `json:"is_active"`
+	BranchName    *string   `json:"branch_name"`
+	AccountNumber *string   `json:"account_number"`
+	HolderName    *string   `json:"holder_name"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 func toResponse(a Account) AccountResponse {
 	return AccountResponse{
-		ID:          a.ID,
-		Name:        a.Name,
-		Type:        a.Type,
-		Balance:     a.Balance,
-		CreditLimit: a.CreditLimit,
-		IsActive:    a.IsActive,
-		CreatedAt:   a.CreatedAt,
+		ID:            a.ID,
+		Name:          a.Name,
+		Type:          a.Type,
+		Balance:       a.Balance,
+		CreditLimit:   a.CreditLimit,
+		IsActive:      a.IsActive,
+		BranchName:    a.BranchName,
+		AccountNumber: a.AccountNumber,
+		HolderName:    a.HolderName,
+		CreatedAt:     a.CreatedAt,
 	}
 }

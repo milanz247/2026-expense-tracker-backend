@@ -25,6 +25,7 @@ var (
 	errDebtNotFound     = errors.New("debt not found")
 	errAlreadySettled   = errors.New("debt is already settled")
 	errExceedsRemaining = errors.New("repayment_amount exceeds the debt's remaining amount")
+	errFeeExceedsAmount = errors.New("fee exceeds repayment_amount")
 )
 
 // Handler exposes HTTP endpoints for debts and loans. All dependencies
@@ -197,6 +198,7 @@ func (h *Handler) CreateRepaymentHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	repayCents := req.RepaymentAmountCents()
+	feeCents := req.FeeCents()
 
 	var updated Debt
 
@@ -220,21 +222,28 @@ func (h *Handler) CreateRepaymentHandler(w http.ResponseWriter, r *http.Request)
 		var ledgerType, description string
 		switch debt.Type {
 		case TypeLent:
-			// Getting paid back increases the wallet — no balance check
-			// needed, same as the borrowed-debt creation path above.
-			if err := account.AdjustBalance(tx, acct.ID, repayCents); err != nil {
+			// Getting paid back increases the wallet — same fee handling
+			// as an income transaction: the fee reduces what actually
+			// lands in the wallet, not the amount recorded against the
+			// debt's own remaining balance.
+			netCredit := repayCents - feeCents
+			if netCredit < 0 {
+				return errFeeExceedsAmount
+			}
+			if err := account.AdjustBalance(tx, acct.ID, netCredit); err != nil {
 				return err
 			}
 			ledgerType = transaction.TypeRepaymentReceived
 			description = fmt.Sprintf("Repayment received from %s", debt.PersonName)
 
 		case TypeBorrowed:
-			// Paying back decreases the wallet, same rule as an
-			// ordinary expense.
-			if err := account.ValidateOutgoing(acct, repayCents); err != nil {
+			// Paying back decreases the wallet — same fee handling as an
+			// ordinary expense: the fee adds to what leaves the wallet.
+			total := repayCents + feeCents
+			if err := account.ValidateOutgoing(acct, total); err != nil {
 				return err
 			}
-			if err := account.AdjustBalance(tx, acct.ID, -repayCents); err != nil {
+			if err := account.AdjustBalance(tx, acct.ID, -total); err != nil {
 				return err
 			}
 			ledgerType = transaction.TypeRepaymentPaid
@@ -257,6 +266,7 @@ func (h *Handler) CreateRepaymentHandler(w http.ResponseWriter, r *http.Request)
 			DebtID:    debt.ID,
 			AccountID: acct.ID,
 			Amount:    repayCents,
+			Fee:       feeCents,
 			Date:      req.Date,
 		}
 		if err := tx.Create(&repayment).Error; err != nil {
@@ -277,6 +287,7 @@ func (h *Handler) CreateRepaymentHandler(w http.ResponseWriter, r *http.Request)
 			UserID:      userID,
 			Type:        ledgerType,
 			Amount:      repayCents,
+			Fee:         feeCents,
 			AccountID:   &acct.ID,
 			CategoryID:  &repaymentCategoryID,
 			Description: description,
@@ -370,6 +381,8 @@ func writeTransactionError(w http.ResponseWriter, logger *slog.Logger, err error
 	case errors.Is(err, errAlreadySettled):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, errExceedsRemaining):
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, errFeeExceedsAmount):
 		writeError(w, http.StatusUnprocessableEntity, err.Error())
 	default:
 		logger.Error("debt operation failed", "error", err)

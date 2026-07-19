@@ -81,7 +81,10 @@ type Repayment struct {
 	// hard-deleted, so this constraint is a backstop, not a common path.
 	AccountID uint `gorm:"not null;index" json:"account_id"`
 
+	// Amount and Fee are stored in cents, same convention as
+	// transaction.Transaction.Amount/Fee.
 	Amount int64     `gorm:"not null" json:"amount"`
+	Fee    int64     `gorm:"not null;default:0" json:"fee"`
 	Date   time.Time `gorm:"not null" json:"date"`
 
 	CreatedAt time.Time `json:"created_at"`

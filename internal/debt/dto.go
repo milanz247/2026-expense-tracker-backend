@@ -71,10 +71,16 @@ func (r *CreateDebtRequest) TotalAmountCents() int64 {
 }
 
 // CreateRepaymentRequest is the expected JSON payload for POST
-// /debts/{id}/repay. RepaymentAmount is expressed in the wallet's major
-// currency unit, converted to cents via RepaymentAmountCents.
+// /debts/{id}/repay. RepaymentAmount and Fee are expressed in the
+// wallet's major currency unit, converted to cents via
+// RepaymentAmountCents/FeeCents. Fee mirrors
+// transaction.CreateTransactionRequest.Fee exactly: for a lent debt
+// (repayment received) it reduces what actually lands in the wallet;
+// for a borrowed debt (repayment paid) it adds to what leaves it — see
+// CreateRepaymentHandler.
 type CreateRepaymentRequest struct {
 	RepaymentAmount float64   `json:"repayment_amount"`
+	Fee             float64   `json:"fee"`
 	AccountID       *uint     `json:"account_id"`
 	Date            time.Time `json:"date"`
 }
@@ -85,6 +91,10 @@ type CreateRepaymentRequest struct {
 func (r *CreateRepaymentRequest) Validate() error {
 	if math.IsNaN(r.RepaymentAmount) || math.IsInf(r.RepaymentAmount, 0) || r.RepaymentAmount <= 0 {
 		return errors.New("repayment_amount must be a positive, finite number")
+	}
+
+	if math.IsNaN(r.Fee) || math.IsInf(r.Fee, 0) || r.Fee < 0 {
+		return errors.New("fee must be a non-negative, finite number")
 	}
 
 	if r.AccountID == nil {
@@ -102,6 +112,12 @@ func (r *CreateRepaymentRequest) Validate() error {
 // an integer number of cents, rounding to the nearest cent.
 func (r *CreateRepaymentRequest) RepaymentAmountCents() int64 {
 	return int64(math.Round(r.RepaymentAmount * 100))
+}
+
+// FeeCents converts the human-entered Fee into an integer number of
+// cents, rounding to the nearest cent.
+func (r *CreateRepaymentRequest) FeeCents() int64 {
+	return int64(math.Round(r.Fee * 100))
 }
 
 // DebtResponse is the JSON shape returned to clients for a single debt.

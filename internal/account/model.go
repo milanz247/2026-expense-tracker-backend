@@ -32,9 +32,18 @@ type Account struct {
 	// touching its balance or transaction history — real money movements
 	// are never deleted, only the ability to add new ones against a
 	// closed wallet.
-	IsActive  bool      `gorm:"not null;default:true;index" json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	IsActive bool `gorm:"not null;default:true;index" json:"is_active"`
+	// BranchName/AccountNumber/HolderName are optional reference details
+	// for non-cash wallets (bank, credit_card, investment) — purely
+	// informational, never used in any balance/ledger arithmetic.
+	// Pointers so they can be genuinely NULL rather than an empty string
+	// when the caller doesn't supply them (matches Account.UserID's
+	// convention elsewhere in this package for an optional column).
+	BranchName    *string   `gorm:"type:varchar(100)" json:"branch_name"`
+	AccountNumber *string   `gorm:"type:varchar(50)" json:"account_number"`
+	HolderName    *string   `gorm:"type:varchar(150)" json:"holder_name"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // TableName pins the table name explicitly so it does not silently change

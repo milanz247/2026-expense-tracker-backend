@@ -58,11 +58,14 @@ func (h *Handler) CreateAccountHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newAccount := Account{
-		UserID:      userID,
-		Name:        req.Name,
-		Type:        req.Type,
-		Balance:     req.BalanceCents(),
-		CreditLimit: req.CreditLimitCents(),
+		UserID:        userID,
+		Name:          req.Name,
+		Type:          req.Type,
+		Balance:       req.BalanceCents(),
+		CreditLimit:   req.CreditLimitCents(),
+		BranchName:    asOptional(req.BranchName),
+		AccountNumber: asOptional(req.AccountNumber),
+		HolderName:    asOptional(req.HolderName),
 	}
 
 	if err := h.db.WithContext(r.Context()).Create(&newAccount).Error; err != nil {
@@ -140,7 +143,13 @@ func (h *Handler) UpdateAccountHandler(w http.ResponseWriter, r *http.Request) {
 	result := h.db.WithContext(r.Context()).
 		Model(&Account{}).
 		Where("id = ? AND user_id = ?", accountID, userID).
-		Updates(map[string]any{"name": req.Name, "type": req.Type})
+		Updates(map[string]any{
+			"name":           req.Name,
+			"type":           req.Type,
+			"branch_name":    asOptional(req.BranchName),
+			"account_number": asOptional(req.AccountNumber),
+			"holder_name":    asOptional(req.HolderName),
+		})
 	if result.Error != nil {
 		h.logger.Error("failed to update wallet", "error", result.Error)
 		writeError(w, http.StatusInternalServerError, "failed to update wallet")
