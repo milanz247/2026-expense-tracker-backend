@@ -10,10 +10,10 @@ Part of a three-repo project:
 ## Features
 
 - JWT authentication (`golang-jwt`), password hashing with `golang.org/x/crypto`
-- Accounts & wallets with running balances
+- Accounts & wallets with running balances, plus optional branch/account number/holder name reference details for non-cash wallets
 - Categories, seeded with a standard set (Salary, Food & Dining, …) on first run
-- Transactions (income/expense) linked to accounts and categories
-- Debts, repayments, creditors, purchases, and settlements
+- Transactions (income/expense/transfer) linked to accounts and categories, with fees
+- Debts, repayments (with fees), creditors, purchases, and settlements
 - Report export to CSV and PDF (`gofpdf`)
 - CORS configured for a separate frontend origin
 - Graceful shutdown on `SIGINT`/`SIGTERM`
